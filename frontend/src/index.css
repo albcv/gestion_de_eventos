@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  background-color: white;
+}
+
+/* Personalización adicional para el tema verde */
+body {
+  @apply bg-gradient-to-br from-green-50 to-emerald-100;
+}
