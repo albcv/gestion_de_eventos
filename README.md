@@ -57,7 +57,7 @@ Proyecto/
 ## ⚙️ Funcionalidades principales
 
 ### 👤 Autenticación y perfiles
-- Registro de nuevos usuarios (por defecto **participante**)
+- Registro de nuevos usuarios
 - Inicio de sesión con **cookie `HttpOnly`** (token no accesible desde JS)
 - Cierre de sesión (elimina cookie y token en BD)
 - Cambio de contraseña desde el perfil
