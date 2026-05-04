@@ -77,6 +77,11 @@ def crear_trabajo(request):
         "archivo": version.archivo.url if version.archivo else None
     }, status=status.HTTP_201_CREATED)
 
+from django.conf import settings  # necesitas importar settings al inicio del archivo
+from ..models import TrabajoAprobado
+
+from django.conf import settings
+
 @api_view(['GET'])
 @authentication_classes([CookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -95,14 +100,26 @@ def obtener_mi_trabajo(request):
     except Trabajo.DoesNotExist:
         return Response({"trabajo_existe": False}, status=200)
 
-    # Verificar si el trabajo está aprobado
-    aprobado = TrabajoAprobado.objects.filter(id_trabajo=trabajo).exists()
+    aprobado_obj = TrabajoAprobado.objects.filter(id_trabajo=trabajo).first()
+    aprobado = aprobado_obj is not None
+    powerpoint = None
+    if aprobado_obj and aprobado_obj.documento:
+        # Si documento es FileField
+        if hasattr(aprobado_obj.documento, 'url'):
+            powerpoint = {
+                "url": aprobado_obj.documento.url,
+                "nombre_archivo": aprobado_obj.documento.name.split('/')[-1]
+            }
+        else:
+            # Si documento es CharField con ruta relativa
+            powerpoint = {
+                "url": f"{settings.MEDIA_URL}{aprobado_obj.documento}",
+                "nombre_archivo": aprobado_obj.documento.split('/')[-1]
+            }
 
-    # Obtener versiones con acceso al objeto completo para usar .url y no conformidades
     versiones_qs = trabajo.versiones.all().order_by('-version_numero')
     versiones_data = []
     for v in versiones_qs:
-        # Obtener no conformidades de esta versión
         no_conformidades = list(v.no_conformidades.values('id', 'no_conformidad'))
         versiones_data.append({
             'id': v.id,
@@ -113,7 +130,7 @@ def obtener_mi_trabajo(request):
             'descripcion': v.descripcion,
             'fecha_subida': v.fecha_subida.isoformat(),
             'archivo_url': v.archivo.url,
-            'no_conformidades': no_conformidades,   
+            'no_conformidades': no_conformidades,
         })
 
     return Response({
@@ -122,7 +139,8 @@ def obtener_mi_trabajo(request):
             "id": trabajo.id,
             "titulo": trabajo.titulo,
             "tematica": trabajo.id_tematica.nombre,
-            "aprobado": aprobado,                   
+            "aprobado": aprobado,
+            "powerpoint": powerpoint,   
             "versiones": versiones_data
         }
     }, status=200)
@@ -206,3 +224,96 @@ def descargar_version(request, version_id):
         return response
     except VersionTrabajo.DoesNotExist:
         return Response({"error": "Versión no encontrada"}, status=404)
+
+
+
+@api_view(['POST'])
+@authentication_classes([CookieTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def subir_powerpoint(request):
+    try:
+        participante = request.user.participante_profile
+    except AttributeError:
+        return Response({"error": "Solo participantes"}, status=403)
+
+    evento = Evento.objects.order_by('-fecha_apertura').first()
+    if not evento:
+        return Response({"error": "No hay evento activo"}, status=404)
+
+    try:
+        trabajo = Trabajo.objects.get(id_participante=participante, evento=evento)
+    except Trabajo.DoesNotExist:
+        return Response({"error": "No tiene trabajo registrado"}, status=404)
+
+    try:
+        aprobado = TrabajoAprobado.objects.get(id_trabajo=trabajo)
+    except TrabajoAprobado.DoesNotExist:
+        return Response({"error": "El trabajo aún no ha sido aprobado"}, status=403)
+
+    archivo = request.FILES.get('archivo')
+    if not archivo:
+        return Response({"error": "Archivo no proporcionado"}, status=400)
+
+    extension = archivo.name.split('.')[-1].lower()
+    if extension not in ['ppt', 'pptx']:
+        return Response({"error": "Formato no permitido. Solo PowerPoint (.pptx o .ppt)"}, status=400)
+
+    # Eliminar archivo anterior si existe
+    if aprobado.documento and default_storage.exists(aprobado.documento.name):
+        default_storage.delete(aprobado.documento.name)
+
+    # Guardar nuevo archivo
+    nombre_base = os.path.splitext(archivo.name)[0]
+    nombre_archivo = f"trabajo_{trabajo.id}_powerpoint_{nombre_base}.{extension}"
+    carpeta_destino = f"powerpoints/evento_{evento.id}/trabajo_{trabajo.id}"
+    ruta_relativa = default_storage.save(os.path.join(carpeta_destino, nombre_archivo), ContentFile(archivo.read()))
+
+    # Asignar el archivo al campo FileField de TrabajoAprobado
+    aprobado.documento = ruta_relativa
+    aprobado.save()
+
+    # Obtener la URL pública del archivo
+    if hasattr(aprobado.documento, 'url'):
+        url = aprobado.documento.url
+    else:
+        url = f"{settings.MEDIA_URL}{ruta_relativa}"
+
+    return Response({
+        "message": "PowerPoint subido correctamente",
+        "url": url
+    }, status=200)
+
+
+@api_view(['GET'])
+@authentication_classes([CookieTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def descargar_powerpoint(request):
+    try:
+        participante = request.user.participante_profile
+    except AttributeError:
+        return Response({"error": "Solo participantes"}, status=403)
+
+    evento = Evento.objects.order_by('-fecha_apertura').first()
+    if not evento:
+        return Response({"error": "No hay evento activo"}, status=404)
+
+    try:
+        trabajo = Trabajo.objects.get(id_participante=participante, evento=evento)
+    except Trabajo.DoesNotExist:
+        return Response({"error": "No tiene trabajo registrado"}, status=404)
+
+    try:
+        aprobado = TrabajoAprobado.objects.get(id_trabajo=trabajo)
+    except TrabajoAprobado.DoesNotExist:
+        return Response({"error": "El trabajo aún no ha sido aprobado"}, status=403)
+
+    if not aprobado.documento:
+        return Response({"error": "No ha subido ningún PowerPoint"}, status=404)
+
+    archivo = aprobado.documento
+    if not default_storage.exists(archivo.name):
+        return Response({"error": "Archivo no encontrado"}, status=404)
+
+    response = FileResponse(default_storage.open(archivo.name, 'rb'))
+    response['Content-Disposition'] = f'attachment; filename="{archivo.name.split("/")[-1]}"'
+    return response

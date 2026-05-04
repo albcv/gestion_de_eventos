@@ -7,6 +7,7 @@ import {
   obtenerNoConformidades,
   editarNoConformidad,
   eliminarNoConformidad,
+  descargarPowerpointTribunal,
   type TrabajoTribunal,
   type Version
 } from '../api/oponente';
@@ -103,6 +104,22 @@ export function RevisarTrabajos() {
     }
   };
 
+  const handleDescargarPowerpoint = async (trabajoId: number) => {
+    try {
+      const blob = await descargarPowerpointTribunal(trabajoId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'presentacion.pptx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err: any) {
+      alert('Error al descargar PowerPoint');
+    }
+  };
+
   const handleEditarNC = (nc: any) => {
     setEditandoNC(prev => ({ ...prev, [nc.id]: true }));
     setEditTextNC(prev => ({ ...prev, [nc.id]: nc.no_conformidad }));
@@ -164,18 +181,37 @@ export function RevisarTrabajos() {
                 <div className="p-6">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h2 className="text-xl font-bold text-gray-800">{trabajo.titulo}</h2>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-xl font-bold text-gray-800">{trabajo.titulo}</h2>
+                        {trabajo.aprobado && (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            ✓ Aprobado
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500">Evento: {trabajo.evento}</p>
                       <p className="text-sm"><span className="font-semibold">Participante:</span> {trabajo.participante}</p>
                       <p className="text-sm"><span className="font-semibold">Temática:</span> {trabajo.tematica}</p>
                     </div>
-                    <button
-                      onClick={() => handleAprobar(trabajo.id)}
-                      disabled={aprobando === trabajo.id}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {aprobando === trabajo.id ? 'Aprobando...' : 'Aprobar trabajo'}
-                    </button>
+                    <div className="flex gap-2">
+                      {trabajo.aprobado && trabajo.powerpoint && (
+                        <button
+                          onClick={() => handleDescargarPowerpoint(trabajo.id)}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                        >
+                          Descargar PowerPoint
+                        </button>
+                      )}
+                      {!trabajo.aprobado && (
+                        <button
+                          onClick={() => handleAprobar(trabajo.id)}
+                          disabled={aprobando === trabajo.id}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {aprobando === trabajo.id ? 'Aprobando...' : 'Aprobar trabajo'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-6">
@@ -200,7 +236,6 @@ export function RevisarTrabajos() {
                               </button>
                             </div>
 
-                            {/* Lista de no conformidades existentes con edición/eliminación */}
                             {noConformidades[v.id] && noConformidades[v.id].length > 0 && (
                               <div className="mt-2 bg-red-50 p-2 rounded">
                                 <p className="text-xs font-semibold text-red-700 mb-1">No conformidades:</p>
@@ -255,7 +290,6 @@ export function RevisarTrabajos() {
                               </div>
                             )}
 
-                            {/* Formulario para agregar nueva no conformidad */}
                             <div className="mt-3 flex items-start gap-2">
                               <textarea
                                 rows={2}

@@ -1,3 +1,4 @@
+# models.py
 from django.db import models
 from .trabajo import Trabajo
 
@@ -12,10 +13,12 @@ class TrabajoAprobado(models.Model):
         default=False,
         help_text="Indica si el pago fue realizado"
     )
-    ruta_documento = models.CharField(
-        max_length=500,
-        unique=True,
-        help_text="Ruta del archivo PowerPoint de la presentación aprobada"
+    documento = models.FileField(
+        upload_to='presentaciones/%Y/%m/%d/',
+        blank=True,
+        null=True,
+        help_text="Archivo PowerPoint del trabajo aprobado",
+        verbose_name="Power Point",
     )
 
     class Meta:

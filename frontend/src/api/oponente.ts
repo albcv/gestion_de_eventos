@@ -16,6 +16,8 @@ export interface TrabajoTribunal {
   participante: string;
   tematica: string;
   evento: string;
+  aprobado: boolean;
+  powerpoint?: { url: string; nombre_archivo: string } | null;
   versiones: Version[];
 }
 
@@ -53,4 +55,11 @@ export const editarNoConformidad = async (ncId: number, texto: string): Promise<
 
 export const eliminarNoConformidad = async (ncId: number): Promise<void> => {
   await axios.delete(`/eliminar-no-conformidad/${ncId}/`);
+};
+
+export const descargarPowerpointTribunal = async (trabajoId: number): Promise<Blob> => {
+  const response = await axios.get(`/descargar-powerpoint-tribunal/${trabajoId}/`, {
+    responseType: 'blob',
+  });
+  return response.data;
 };

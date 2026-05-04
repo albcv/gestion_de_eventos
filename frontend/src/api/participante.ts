@@ -7,6 +7,33 @@ export interface CrearTrabajoResponse {
   archivo: string;
 }
 
+export interface Version {
+  id: number;
+  version_numero: number;
+  nombre_archivo: string;
+  tipo_archivo: string;
+  tamanio: number;
+  descripcion: string;
+  fecha_subida: string;
+  archivo_url: string;
+  no_conformidades?: { id: number; no_conformidad: string }[];
+}
+
+export interface MiTrabajoResponse {
+  trabajo_existe: boolean;
+  trabajo?: {
+    id: number;
+    titulo: string;
+    tematica: string;
+    aprobado?: boolean;
+    powerpoint?: {
+      url: string;
+      nombre_archivo: string;
+    } | null;
+    versiones: Version[];
+  };
+}
+
 export const crearTrabajo = async (
   titulo: string,
   tematica_id: number,
@@ -19,55 +46,15 @@ export const crearTrabajo = async (
   formData.append('archivo', archivo);
   if (descripcion) formData.append('descripcion', descripcion);
 
-  try {
-    const response = await axios.post<CrearTrabajoResponse>('/trabajos/crear/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
-  } catch (error: any) {
-    if (error.response) {
-      throw new Error(error.response.data.error || 'Error al crear el trabajo');
-    } else if (error.request) {
-      throw new Error('No se pudo conectar al servidor');
-    } else {
-      throw new Error('Error al enviar la petición');
-    }
-  }
+  const response = await axios.post<CrearTrabajoResponse>('/trabajos/crear/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
 };
 
-export interface Version {
-  id: number;
-  version_numero: number;
-  nombre_archivo: string;
-  tipo_archivo: string;
-  tamanio: number;
-  descripcion: string;
-  fecha_subida: string;
-  archivo_url: string;
-  no_conformidades?: { id: number; no_conformidad: string }[]; // Nuevo
-}
-
-export interface MiTrabajoResponse {
-  trabajo_existe: boolean;
-  trabajo?: {
-    id: number;
-    titulo: string;
-    tematica: string;
-    aprobado?: boolean;      
-    versiones: Version[];
-  };
-}
-
 export const obtenerMiTrabajo = async (): Promise<MiTrabajoResponse> => {
-  try {
-    const response = await axios.get('/mi-trabajo/');
-    return response.data;
-  } catch (error: any) {
-    if (error.response) {
-      throw new Error(error.response.data.error || 'Error al obtener trabajo');
-    }
-    throw new Error('Error de conexión');
-  }
+  const response = await axios.get('/mi-trabajo/');
+  return response.data;
 };
 
 export const crearVersion = async (
@@ -80,37 +67,31 @@ export const crearVersion = async (
   formData.append('archivo', archivo);
   if (descripcion) formData.append('descripcion', descripcion);
   
-  try {
-    const response = await axios.post('/crear-version/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data;
-  } catch (error: any) {
-    if (error.response) {
-      throw new Error(error.response.data.error || 'Error al crear versión');
-    }
-    throw new Error('Error de conexión');
-  }
+  const response = await axios.post('/crear-version/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
 };
 
-
 export const descargarVersion = async (versionId: number): Promise<Blob> => {
-  try {
-    const response = await axios.get(`/descargar-version/${versionId}/`, {
-      responseType: 'blob', 
-    });
-    return response.data;
-  } catch (error: any) {
-    if (error.response) {
-      // Intenta extraer el mensaje de error del blob (puede ser JSON)
-      const text = await error.response.data.text();
-      try {
-        const json = JSON.parse(text);
-        throw new Error(json.error || 'Error al descargar versión');
-      } catch {
-        throw new Error('Error al descargar versión');
-      }
-    }
-    throw new Error('Error de conexión');
-  }
+  const response = await axios.get(`/descargar-version/${versionId}/`, {
+    responseType: 'blob',
+  });
+  return response.data;
+};
+
+export const subirPowerpoint = async (archivo: File): Promise<{ message: string; url: string }> => {
+  const formData = new FormData();
+  formData.append('archivo', archivo);
+  const response = await axios.post('/subir-powerpoint/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+export const descargarPowerpoint = async (): Promise<Blob> => {
+  const response = await axios.get('/descargar-powerpoint/', {
+    responseType: 'blob',
+  });
+  return response.data;
 };

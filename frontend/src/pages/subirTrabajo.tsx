@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getEventoActual } from '../api/evento';
 import type { EventoActual } from '../api/evento';
-import { crearTrabajo, obtenerMiTrabajo, crearVersion, descargarVersion, type Version } from '../api/participante';
+import {
+  crearTrabajo,
+  obtenerMiTrabajo,
+  crearVersion,
+  descargarVersion,
+  subirPowerpoint,
+  descargarPowerpoint,
+  type Version
+} from '../api/participante';
 import trabajoImg from '../img/trabajo.png';
 
 export function SubirTrabajo() {
@@ -10,17 +18,19 @@ export function SubirTrabajo() {
   const [trabajoExistente, setTrabajoExistente] = useState<any>(null);
   const [versiones, setVersiones] = useState<Version[]>([]);
   const [aprobado, setAprobado] = useState<boolean>(false);
+  const [powerpointUrl, setPowerpointUrl] = useState<string | null>(null);
   const [cargandoInicial, setCargandoInicial] = useState(true);
 
-  // Formulario para nuevo trabajo
   const [titulo, setTitulo] = useState('');
   const [tematicaId, setTematicaId] = useState<number | ''>('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [descripcion, setDescripcion] = useState('');
 
-  // Formulario para nueva versión
   const [archivoVersion, setArchivoVersion] = useState<File | null>(null);
   const [descripcionVersion, setDescripcionVersion] = useState('');
+
+  const [powerpointFile, setPowerpointFile] = useState<File | null>(null);
+  const [subiendoPPT, setSubiendoPPT] = useState(false);
 
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
@@ -43,6 +53,7 @@ export function SubirTrabajo() {
           setTrabajoExistente(miTrabajo.trabajo);
           setVersiones(miTrabajo.trabajo.versiones);
           setAprobado(miTrabajo.trabajo.aprobado || false);
+          setPowerpointUrl(miTrabajo.trabajo.powerpoint?.url || null); // ✅ Corregido
         }
       } catch (err: any) {
         setError(err.message);
@@ -69,6 +80,7 @@ export function SubirTrabajo() {
         setTrabajoExistente(miTrabajo.trabajo);
         setVersiones(miTrabajo.trabajo.versiones);
         setAprobado(miTrabajo.trabajo.aprobado || false);
+        setPowerpointUrl(miTrabajo.trabajo.powerpoint?.url || null); // ✅
       }
       setTitulo('');
       setTematicaId('');
@@ -97,6 +109,7 @@ export function SubirTrabajo() {
       if (miTrabajo.trabajo_existe && miTrabajo.trabajo) {
         setVersiones(miTrabajo.trabajo.versiones);
         setAprobado(miTrabajo.trabajo.aprobado || false);
+        setPowerpointUrl(miTrabajo.trabajo.powerpoint?.url || null); // ✅
       }
       setArchivoVersion(null);
       setDescripcionVersion('');
@@ -121,6 +134,45 @@ export function SubirTrabajo() {
       a.remove();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const handleSubirPowerpoint = async () => {
+    if (!powerpointFile) {
+      setError('Seleccione un archivo PowerPoint');
+      return;
+    }
+    setSubiendoPPT(true);
+    try {
+      const data = await subirPowerpoint(powerpointFile);
+      setPowerpointUrl(data.url);
+      setExito('PowerPoint subido correctamente');
+      setPowerpointFile(null);
+      const miTrabajo = await obtenerMiTrabajo();
+      if (miTrabajo.trabajo_existe && miTrabajo.trabajo) {
+        setPowerpointUrl(miTrabajo.trabajo.powerpoint?.url || null);
+      }
+      setTimeout(() => setExito(''), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al subir PowerPoint');
+    } finally {
+      setSubiendoPPT(false);
+    }
+  };
+
+  const handleDescargarPowerpoint = async () => {
+    try {
+      const blob = await descargarPowerpoint();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'presentacion.pptx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al descargar PowerPoint');
     }
   };
 
@@ -160,12 +212,59 @@ export function SubirTrabajo() {
           {exito && <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg text-sm">{exito}</div>}
 
           {!trabajoExistente ? (
-            // Formulario de creación de trabajo (sin cambios)
             <form onSubmit={handleSubmitNuevoTrabajo} className="space-y-5">
-              {/* ... mismo código de creación ... */}
+              <div>
+                <label className="block text-gray-700 font-medium mb-1">Título del trabajo *</label>
+                <input
+                  type="text"
+                  value={titulo}
+                  onChange={(e) => setTitulo(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-medium mb-1">Temática *</label>
+                <select
+                  value={tematicaId}
+                  onChange={(e) => setTematicaId(Number(e.target.value))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  required
+                >
+                  <option value="">Seleccione una temática</option>
+                  {tematicasList.map((tem: any) => (
+                    <option key={tem.id} value={tem.id}>{tem.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-gray-700 font-medium mb-1">Documento (PDF o Word) *</label>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  onChange={(e) => setArchivo(e.target.files?.[0] || null)}
+                  required
+                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 font-medium mb-1">Descripción (opcional)</label>
+                <textarea
+                  value={descripcion}
+                  onChange={(e) => setDescripcion(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={cargando}
+                className="w-full bg-gradient-to-r from-green-600 to-emerald-700 text-white font-semibold py-3 px-4 rounded-lg hover:from-green-700 hover:to-emerald-800 transition disabled:opacity-50"
+              >
+                {cargando ? 'Creando...' : 'Crear trabajo'}
+              </button>
             </form>
           ) : (
-            // Vista de trabajo existente
             <div>
               <div className="bg-gray-50 p-4 rounded-lg mb-6">
                 <h3 className="text-xl font-semibold text-gray-800">Trabajo actual</h3>
@@ -198,7 +297,6 @@ export function SubirTrabajo() {
                           Descargar versión {v.version_numero}
                         </button>
                       </div>
-                      {/* Mostrar no conformidades de esta versión */}
                       {v.no_conformidades && v.no_conformidades.length > 0 && (
                         <div className="mt-2 bg-red-50 p-2 rounded">
                           <p className="text-xs font-semibold text-red-700">No conformidades detectadas:</p>
@@ -214,10 +312,82 @@ export function SubirTrabajo() {
                 </div>
               )}
 
-              <h3 className="text-xl font-semibold text-gray-800 mb-3">Subir nueva versión</h3>
-              <form onSubmit={handleSubmitNuevaVersion} className="space-y-4">
-                {/* ... mismo código para subir versión ... */}
-              </form>
+              {aprobado && (
+                <div className="mt-6 border-t pt-4">
+                  <h3 className="text-xl font-semibold text-gray-800 mb-3">Presentación PowerPoint</h3>
+                  {powerpointUrl ? (
+                    <div className="mb-4 flex justify-between items-center">
+                      <p className="text-sm text-gray-600">Archivo actual disponible.</p>
+                      <button
+                        onClick={handleDescargarPowerpoint}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                      >
+                        Descargar PowerPoint
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 mb-2">Aún no ha subido la presentación. Puede subirla ahora.</p>
+                  )}
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-gray-700 font-medium mb-1">Subir/actualizar PowerPoint (.pptx o .ppt)</label>
+                      <input
+                        type="file"
+                        accept=".ppt,.pptx"
+                        onChange={(e) => setPowerpointFile(e.target.files?.[0] || null)}
+                        className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                      />
+                    </div>
+                    <button
+                      onClick={handleSubirPowerpoint}
+                      disabled={subiendoPPT || !powerpointFile}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {subiendoPPT ? 'Subiendo...' : 'Subir PowerPoint'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!aprobado && (
+                <>
+                  <h3 className="text-xl font-semibold text-gray-800 mb-3 mt-6">Subir nueva versión</h3>
+                  <form onSubmit={handleSubmitNuevaVersion} className="space-y-4">
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Documento (PDF o Word) *</label>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={(e) => setArchivoVersion(e.target.files?.[0] || null)}
+                        required
+                        className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 font-medium mb-1">Descripción (opcional)</label>
+                      <textarea
+                        value={descripcionVersion}
+                        onChange={(e) => setDescripcionVersion(e.target.value)}
+                        rows={2}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={cargando}
+                      className="w-full bg-gradient-to-r from-green-600 to-emerald-700 text-white font-semibold py-3 px-4 rounded-lg hover:from-green-700 hover:to-emerald-800 transition disabled:opacity-50"
+                    >
+                      {cargando ? 'Subiendo...' : 'Subir nueva versión'}
+                    </button>
+                  </form>
+                </>
+              )}
+
+              {aprobado && (
+                <div className="mt-6 text-center text-gray-500 italic">
+                  El trabajo ha sido aprobado. No se pueden subir más versiones.
+                </div>
+              )}
             </div>
           )}
         </div>

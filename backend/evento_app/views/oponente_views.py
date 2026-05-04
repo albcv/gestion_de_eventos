@@ -1,3 +1,6 @@
+from django.conf import settings
+from django.core.files.storage import default_storage
+from django.http import FileResponse
 from ..authentication import CookieTokenAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -8,20 +11,35 @@ from ..models import Trabajo, TrabajoAprobado, NoConformidad, VersionTrabajo
 @authentication_classes([CookieTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def trabajos_tribunal(request):
-    # Verificar que el usuario sea oponente
     try:
         oponente = request.user.oponente_profile
     except AttributeError:
-        return Response({"error": "Solo oponentes pueden acceder"}, status=403)
-    
+        return Response({"error": "Solo oponentes"}, status=403)
+
     tribunal = oponente.id_tribunal
-    if not tribunal:
-        return Response({"error": "No pertenece a ningún tribunal"}, status=404)
-    
-    trabajos = Trabajo.objects.filter(id_tribunal=tribunal).select_related('id_participante', 'id_tematica', 'evento').prefetch_related('versiones')
-    
+    trabajos = Trabajo.objects.filter(id_tribunal=tribunal).select_related(
+        'id_participante', 'id_tematica', 'evento'
+    ).prefetch_related('versiones', 'aprobacion')
+
     data = []
     for trabajo in trabajos:
+        aprobado_obj = getattr(trabajo, 'aprobacion', None)
+        aprobado = aprobado_obj is not None
+        powerpoint = None
+        if aprobado_obj and aprobado_obj.documento:
+            # Si documento es FileField
+            if hasattr(aprobado_obj.documento, 'url'):
+                powerpoint = {
+                    "url": aprobado_obj.documento.url,
+                    "nombre_archivo": aprobado_obj.documento.name.split('/')[-1]
+                }
+            else:
+                # Si es CharField con ruta
+                powerpoint = {
+                    "url": f"{settings.MEDIA_URL}{aprobado_obj.documento}",
+                    "nombre_archivo": aprobado_obj.documento.split('/')[-1]
+                }
+
         versiones_data = []
         for v in trabajo.versiones.all().order_by('-version_numero'):
             versiones_data.append({
@@ -33,15 +51,18 @@ def trabajos_tribunal(request):
                 'descripcion': v.descripcion,
                 'fecha_subida': v.fecha_subida.isoformat(),
             })
+
         data.append({
             'id': trabajo.id,
             'titulo': trabajo.titulo,
             'participante': f"{trabajo.id_participante.nombre} {trabajo.id_participante.apellido1}",
             'tematica': trabajo.id_tematica.nombre,
             'evento': trabajo.evento.nombre,
+            'aprobado': aprobado,
+            'powerpoint': powerpoint,
             'versiones': versiones_data
         })
-    
+
     return Response(data, status=200)
 
 
@@ -73,10 +94,10 @@ def aprobar_trabajo(request, trabajo_id):
     aprobado = TrabajoAprobado.objects.create(
         id_trabajo=trabajo,
         pago=False,   # por defecto; se puede actualizar después
-        ruta_documento=''  # opcional, podría ser la última versión
+        documento=''  # opcional, podría ser la última versión
         # Si quieres guardar la ruta del documento de la última versión:
         # ultima_version = trabajo.versiones.order_by('-version_numero').first()
-        # if ultima_version: aprobado.ruta_documento = ultima_version.archivo.name
+        # if ultima_version: aprobado.documento = ultima_version.archivo.name
     )
     return Response({"message": "Trabajo aprobado correctamente", "aprobado_id": aprobado.id}, status=201)
 
@@ -190,3 +211,34 @@ def eliminar_no_conformidad(request, nc_id):
     
     nc.delete()
     return Response({"message": "No conformidad eliminada"}, status=200)
+
+
+@api_view(['GET'])
+@authentication_classes([CookieTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def descargar_powerpoint_tribunal(request, trabajo_id):
+    try:
+        oponente = request.user.oponente_profile
+    except AttributeError:
+        return Response({"error": "Solo oponentes"}, status=403)
+
+    try:
+        trabajo = Trabajo.objects.get(id=trabajo_id)
+    except Trabajo.DoesNotExist:
+        return Response({"error": "Trabajo no encontrado"}, status=404)
+
+    # Verificar que el trabajo pertenezca al tribunal del oponente
+    if trabajo.id_tribunal != oponente.id_tribunal:
+        return Response({"error": "No autorizado"}, status=403)
+
+    aprobado = getattr(trabajo, 'aprobacion', None)
+    if not aprobado or not aprobado.documento:
+        return Response({"error": "No hay PowerPoint disponible"}, status=404)
+
+    archivo = aprobado.documento
+    if not default_storage.exists(archivo.name):
+        return Response({"error": "Archivo no encontrado"}, status=404)
+
+    response = FileResponse(default_storage.open(archivo.name, 'rb'))
+    response['Content-Disposition'] = f'attachment; filename="{archivo.name.split("/")[-1]}"'
+    return response
